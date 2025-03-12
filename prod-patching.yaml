@@ -1,0 +1,53 @@
+---
+
+- name: "Update and Backup EC2 Instances"
+  hosts: all
+  become: true
+
+  vars:
+    instance_id: "i-034c74934fe947372"
+    description: "prod_grants_oldcc_mil_MAINT"
+    region: "us-gov-west-1"
+    ansible_python_interpreter: "/usr/bin/python3"
+
+  tasks:
+    - name: "Create and AMI of the instance"
+      amazon.aws.ec2_ami:
+        description: "{{ description }}_{{ ansible_date_time.date }}"
+        instance_id: "{{ instance_id }}"
+        name: "Instance_Backup_{{ instance_id }}_{{ ansible_date_time.epoch }}"
+        no_reboot: true
+        region: "{{ region }}"
+        wait: true
+        tags:
+          Backup: "true"
+          Name: "Instance_Backup_{{ instance_id }}_{{ ansible_date_time.epoch }}"
+          Frequency: "Monthly_Maintenance"
+          Date: "{{ ansible_date_time.date }}"
+          Time: "{{ ansible_date_time.time }}"
+      register: ami_result
+
+    - name: "Snapshot information"
+      ansible.builtin.debug:
+        var: ami_result
+
+    - name: "Update all packages"
+      ansible.builtin.yum:
+        name: '*'
+        state: present
+
+    - name: "Check if reboot is required"
+      ansible.builtin.command: needs-restarting -r
+      register: reboot_required
+      changed_when: reboot_required.rc != 0
+
+    - name: "Reboot machine and send a message"
+      ansible.builtin.reboot:
+        msg: "Reboot initiated by Ansible"
+      when: reboot_required.rc != 0
+      register: reboot_instance
+
+    - name: "Reboot status"
+      ansible.builtin.debug:
+        var: reboot_instance
+      when: reboot_required.rc != 0
